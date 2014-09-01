@@ -1,0 +1,19 @@
+<configuration scan="true">
+
+  <!-- Configure logging with colour output and use MDC to show Camel route and exchange IDs. -->
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%yellow(%d{HH:mm:ss}) %highlight(%-5level) %yellow(%logger) %cyan(%X{camel.routeId} %.10X{camel.exchangeId}) %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <!-- Show some Camel logging, but hide extensive debug. -->
+  <logger name="org.apache.camel" level="INFO"/>
+
+  <!-- Hide type converter errors -->
+  <logger name="org.apache.camel.impl.converter.AnnotationTypeConverterLoader" level="ERROR"/>
+
+  <root level="debug">
+    <appender-ref ref="STDOUT"/>
+  </root>
+</configuration>
