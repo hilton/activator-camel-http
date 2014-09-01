@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Camel integration with web services</title>
+</head>
+<body>
+
+<div>
+  <h2>Tutorial overview</h2>
+
+  <p>This tutorial shows you how to use <a href="http://camel.apache.org">Apache
+  Camel</a> to process files and send them to a web service over HTTP. To do
+  this, the sample application defines two Camel routes. The first sends JSON
+  files directly to an HTTP endpoint, and the second uses MIME multipart form
+  encoding for the file upload.</p>
+
+  <p>The goal of this tutorial is to show the minimal code to define and run
+  a Camel route that uses the Scala DSL and standard Camel components. In
+  addition, a second route shows an example of customising Camel’s default
+  behaviour.</p>
+
+  <p>This tutorial demonstrates how little code and configuration is required
+  to start using Camel with Scala.</p>
+</div>
+
+
+<div>
+  <h2>Application structure</h2>
+
+  <p>The application is simple enough that there is almost no structure.</p>
+
+  <ol>
+  <li><a href="#code/src/main/scala/CamelApplication.scala" class="shortcut"><code>CamelApplication</code></a>
+  contains minimal code to configure and run Camel.</li>
+  <li><a href="#code/src/main/scala/JsonPost.scala" class="shortcut"><code>JsonPost.scala</code></a>
+  defines a Camel route that sends JSON files to an HTTP endpoint.</li>
+  <li><a href="#code/src/main/scala/FileUpload.scala" class="shortcut"><code>FileUpload.scala</code></a>
+  defines a Camel route that uploads XML/PDF files to an HTTP endpoint.</li>
+  <li><a href="#code/src/main/resources/" class="shortcut"><code>src/main/resources/</code></a>
+  contains a logging configuration file and sample files that you can use to
+  test the routes.</li>
+  <li><a href="#code/build.sbt" class="shortcut"><code>build.sbt</code></a>
+  specifies the Camel and logging library dependencies.</li>
+  </ol>
+
+  <p>The rest of the tutorial will explain the two Camel routes, and then show
+  you how to try them out.</p>
+</div>
+
+
+<div>
+  <h2>Sending JSON to a web service</h2>
+
+  <p><a href="#code/src/main/scala/JsonPost.scala" class="shortcut"><code>JsonPost</code></a>
+  defines a Camel route that sends the contents of a JSON file to a URL using
+  HTTP POST. This route definition uses the
+  <a href="http://camel.apache.org/scala-dsl.html">Scala DSL</a>.</p>
+
+  <p>The thing in the route is a string that starts <code>file:</code> which
+  uses the <a href="http://camel.apache.org/file2.html">File</a> component to
+  define a URI for the route’s message source. For this example, this is a local
+  <code>target/incoming/</code> directory, which Camel creates on start-up if
+  it does not exist. This URI uses the File component’s <code>include</code>
+  option to specify that only JSON files are processed.</p>
+
+  <p>The route itself consists of four steps.</p>
+
+  <ol>
+  <li>Define a route ID.</li>
+  <li>Log the start of message processing.</li>
+  <li>Define error handlers for HTTP errors.</li>
+  <li>Send the message to a web service.</li>
+  </ol>
+
+  <p>The route ID is not used in the route itself, but is output in log
+  statements. This gives you a way to identify the route in log statements,
+  which is useful for debugging production systems whose log files interleave
+  logging from different routes that execute simultaneously. To make this work,
+  <a href="#code/src/main/scala/CamelApplication.scala" class="shortcut"><code>CamelApplication</code></a>
+  enables <a href="http://logback.qos.ch/manual/mdc.html">Mapped Diagnostic Context</a>
+  logging, and the logging configuration in
+  <a href="#code/src/main/resources/logback.xml" class="shortcut"><code>logback.xml</code></a>
+  uses <code>%X{camel.routeId}</code> in the pattern layout to output the
+  route ID. The logging pattern also includes the Camel exchange ID, so you can
+  separate log statements for different executions of the same route.</p>
+
+  <p>In <a href="#code/src/main/scala/JsonPost.scala" class="shortcut"><code>JsonPost</code></a>,
+  before anything else happens, the route outputs a log message, giving the
+  incoming message file name. In a production system, this allows you to trace
+  log messages (identified by route and exchange ID) back to the file received
+  from an upstream system.</p>
+
+  <p>Next, the route defines exception handlers for whenever the route throws
+  specific HTTP exceptions. In this example, the exception handler logs an
+  error and moves the incoming file to a
+  <a href="http://camel.apache.org/dead-letter-channel.html">Dead Letter Channel</a>.
+  Note the call to the <code>handled</code> method, which indicates that the
+  exception has been handled and prevents any further processing.</p>
+
+  <p>Finally, the route uses the
+  <a href="http://camel.apache.org/http4.html">HTTP</a> component to send the
+  current message to a web service, presumed to be running at
+  <code>http://localhost:9000/</code>. This means sending the current message
+  body - the contents of the incoming JSON file - using HTTP POST. The call to
+  <code>setHeader</code> sets a Camel exchange header, which the HTTP component
+  translates to an HTTP request header.</p>
+
+  <p>There is more logging around the call to the external web service, because
+  you need this to be able to isolate systems for debugging. In production, you
+  need to be able to see what was sent and received for an HTTP request.</p>
+
+  <p>In this example, the <code>target/incoming/</code> source directory and
+  <code>http://localhost:9000/</code> are hard-coded for readability. In a
+  production system, you would use configuration parameters instead, because
+  these locations will depend on the machine and the environment - development,
+  test or production.</p>
+</div>
+
+
+<div>
+  <h2>HTTP file upload</h2>
+
+  <p>The next route illustrates a different use case. Suppose you have a legacy
+  web service that is designed to handle file uploads from an HTML form. For
+  example, it might use a form like this, which uploads a file and uses
+  additional form fields for a file name and date:</p>
+
+  <pre><code>&lt;form action="/" enctype="multipart/form-data"&gt;
+  &lt;input name="file" type="file"&gt;
+  &lt;input name="name"&gt;
+  &lt;input name="date" type="date"&gt;
+  &lt;button&gt;Upload File&lt;/button&gt;
+&lt;/form&gt;</code></pre>
+
+  <p>To send binary file data in the request, the form must use the <a
+  href="http://tools.ietf.org/html/rfc2388">multipart/form-data</a> encoding.
+  This encoding handles multiple form parameters, each of which can be text or
+  encoded binary. To use this legacy API from a Camel route, you will have to
+  apply the same form encoding.</p>
+</div>
+
+
+<div>
+  <h2>Adding message translation</h2>
+
+  <p><a href="#code/src/main/scala/FileUpload.scala" class="shortcut"><code>FileUpload</code></a>
+  is a second Camel route that is based on
+  <a href="#code/src/main/scala/JsonPost.scala" class="shortcut"><code>JsonPost</code></a>
+  but has two key differences.</p>
+
+  <ol>
+  <li>The route processes XML and PDF files, instead of JSON files.</li>
+  <li>The HTTP POST uses MIME multipart/form-data encoding instead of sending
+  the raw file.</li>
+  </ol>
+
+  <p>You can see the first difference in the route’s source URL. This time, the
+  <code>include</code> option’s regular expression matches on two different file
+  extensions. In addition, the <code>keepLastModified</code> option preserves
+  the incoming file’s last-modified date when copying the file for processing,
+  so you can use it later.</p>
+
+  <p>Using multipart/form-data encoding has two parts:</p>
+
+  <ol>
+  <li>the call to the <code>process</code> method encodes the message body using
+  <code>toMultipart</code> - a custom message processor</li>
+  <li>the HTTP request uses the <code>multipart/form-data</code> content type</li>
+  </ol>
+
+  <p><code>toMultipart</code> is a Camel <a
+  href="http://camel.apache.org/processor.html">Processor</a> that transforms
+  the Camel exchange, acting as a
+  <a href="http://camel.apache.org/message-translator.html">Message Translator</a>.
+  In this context, the processor is just a Scala function with a single
+  <code>org.apache.camel.Exchange</code> parameter that gives us access to the
+  inbound and outbound messages.</p>
+
+  <p>First, the processor collects file information from the inbound message -
+  the input to the processor. For this example, you need the file itself (to
+  access its contents), the file name and the file’s modification date. Next,
+  the processor uses this information to translate the message and create the
+  body of the outbound message.</p>
+
+  <p>To implement the message translation - the MIME encoding - you can use the
+  <a href="https://hc.apache.org/">Apache HttpComponents</a> library.
+  <a href="https://hc.apache.org/httpcomponents-client-ga/httpmime/apidocs/org/apache/http/entity/mime/MultipartEntityBuilder.html">MultipartEntityBuilder</a>
+  has a straightforward API for creating a MIME multipart entity.</p>
+</div>
+
+<div>
+  <h2>Running the application</h2>
+
+  <p>When you run the application, <code>org.apache.camel.impl.DefaultCamelContext</code>
+  logs start-up information, including:</p>
+
+  <pre>Route: json started and consuming from: Endpoint[file://target/incoming/?include=.*%5C.json%24]
+Route: upload started and consuming from: Endpoint[file://target/incoming/?include=.*%5C.%28xml%7Cpdf%29&keepLastModified=true]
+Total 2 routes, of which 2 is started.
+Apache Camel 2.13.2 (CamelContext: camel-1) started in 0.580 seconds</pre>
+
+  <p>Camel is now ready to process files. For example, use the console to copy
+  the sample JSON file to the incoming directory:</p>
+
+  <pre>cp src/main/resources/test.json target/incoming/</pre>
+
+  <p>This will result in a <em>Cannot connect to the HTTP server</em> error,
+  because there is no HTTP server running at <code>localhost:9000</code>.</p>
+
+  <p>The simplest way to make <code>localhost:9000</code> accept an HTTP
+  connection is to run the Unix <em>netcat</em> command on another console:</p>
+
+  <pre>nc -l 9000</pre>
+
+  <p>Now copy the <code>test.json</code> file again. Now the Camel console logs
+  output from the route:</p>
+
+  <pre>Incoming file: test.json</pre>
+
+  <p>Meanwhile, <em>netcat</em> outputs the raw HTTP request:</p>
+
+  <pre>POST / HTTP/1.1
+Content-Length: 62
+Content-Type: application/json
+Host: localhost:9000
+Connection: Keep-Alive
+User-Agent: Apache-HttpClient/4.3.5 (java 1.5)
+Accept-Encoding: gzip,deflate
+
+{
+ "quantity": 11,
+ "mood": "elated",
+ "animal": "elephants"
+}</pre>
+
+  <p>However, <em>netcat</em> is not an HTTP server, so it does not return an
+  HTTP response, which is why there is no additional Camel logging.</p>
+
+  <p>To successfully execute the whole route, use an HTTP server that will
+  return a success response. For example, in
+  <a href="#code/src/main/scala/JsonPost.scala" class="shortcut"><code>JsonPost</code></a>
+  at the bottom of the route, change <code>localhost:9000/</code> to
+  <code>httpbin.org/post</code>, restart the Camel application, and copy the
+  test file to <code>target/incoming/</code> again. This time, you should see a
+  detailed JSON response from httpbin.</p>
+
+  <p>You can test the
+  <a href="#code/src/main/scala/FileUpload.scala" class="shortcut"><code>FileUpload</code></a>
+  route the same way. Alternatively, write a simple
+  <a href="https://playframework.com">Play Framework</a> application to
+  implement an HTTP server that handles the file uploads.</p>
+</div>
+
+</body>
