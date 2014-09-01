@@ -5,12 +5,40 @@ import org.apache.camel.Exchange
 import org.apache.camel.LoggingLevel._
 import org.apache.camel.component.http4.HttpOperationFailedException
 import org.apache.camel.scala.dsl.builder.RouteBuilder
+import org.apache.http.conn.HttpHostConnectException
 import org.apache.http.entity.mime.MultipartEntityBuilder
 
 /**
  * Camel route that uploads XML/PDF files to an HTTP endpoint.
  */
 class FileUpload extends RouteBuilder {
+
+  """file:target/incoming/?include=.*\.(xml|pdf)&keepLastModified=true""" ==> {
+
+    id("upload")
+
+    // Log an error for a failure to connect to the external web service.
+    handle[HttpHostConnectException] {
+      log(ERROR, "Cannot connect to the HTTP server")
+      to("file:target/failed")
+    }.handled
+
+    // Log web service errors and move the file to the failure endpoint
+    handle[HttpOperationFailedException] {
+      log(ERROR, "HTTP response: ${exception.statusCode} ${exception.statusText}\n${exception.responseBody}")
+      to("file:target/failed")
+    }.handled
+
+    // Transform the message into multipart/form-data.
+    process(toMultipart _)
+
+    // Send the message by HTTP POST and log the response.
+    log("POST ${header.CamelFileName} to /upload")
+    setHeader(Exchange.CONTENT_TYPE, "multipart/form-data")
+    to("http4:localhost:9000/upload")
+    log("HTTP response status: ${header.CamelHttpResponseCode}")
+    log(DEBUG, "HTTP response body:\n${body}")
+  }
 
   private def formatTimestamp(time: String): String  = {
     new SimpleDateFormat("yyyy-MM-dd") format new Date(time.toLong)
@@ -39,27 +67,5 @@ class FileUpload extends RouteBuilder {
 
     // Set multipart entity as the outgoing message’s body…
     exchange.getOut.setBody(entity.build)
-  }
-
-
-  """file:target/incoming/?include=.*\.(xml|pdf)&keepLastModified=true""" ==> {
-
-    id("upload")
-
-    // Log web service errors and move the file to the failure endpoint
-    handle[HttpOperationFailedException] {
-      log(ERROR, "HTTP response: ${exception.statusCode} ${exception.statusText}\n${exception.responseBody}")
-      to("file:target/failed")
-    }.handled
-
-    // Transform the message into multipart/form-data.
-    process(toMultipart _)
-
-    // Send the message by HTTP POST and log the response.
-    log("POST ${header.CamelFileName} to /upload")
-    setHeader(Exchange.CONTENT_TYPE, "multipart/form-data")
-    to("http4:localhost:9000/upload")
-    log("HTTP response status: ${header.CamelHttpResponseCode}")
-    log(DEBUG, "HTTP response body:\n${body}")
   }
 }

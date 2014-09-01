@@ -2,6 +2,7 @@ import org.apache.camel.Exchange
 import org.apache.camel.LoggingLevel._
 import org.apache.camel.component.http4.HttpOperationFailedException
 import org.apache.camel.scala.dsl.builder.RouteBuilder
+import org.apache.http.conn.HttpHostConnectException
 import scala.collection.JavaConversions._
 
 /**
@@ -14,8 +15,14 @@ class JsonPost extends RouteBuilder {
     // Define the route ID, which is shown in the log.
     id("json")
 
-    // Log the message.
+    // Log the start of message processing.
     log("Incoming file: ${header.CamelFileName}")
+
+    // Log an error for a failure to connect to the external web service.
+    handle[HttpHostConnectException] {
+      log(ERROR, "Cannot connect to the HTTP server")
+      to("file:target/failed")
+    }.handled
 
     // Log any web service errors and move the file to the failure endpoint.
     handle[HttpOperationFailedException] {
